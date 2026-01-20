@@ -1,0 +1,24 @@
+{
+  "name": "diandeng-broker",
+  "version": "1.0.0",
+  "description": "点灯Broker Lite - A lightweight MQTT broker service",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "mqtt",
+    "broker",
+    "iot",
+    "aedes"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "aedes": "^0.51.3",
+    "better-sqlite3": "^11.0.0",
+    "fastify": "^4.26.0",
+    "uuid": "^9.0.1"
+  }
+}
