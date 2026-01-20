@@ -1,0 +1,212 @@
+const {
+  getAllDevices,
+  getDeviceByUuid,
+  getDeviceGroups,
+  getDeviceByAuthKey,
+  updateDeviceConnection,
+  createDevice,
+  createGroup,
+  getGroupByName,
+  addDeviceToGroup
+} = require('../src/database');
+const crypto = require('crypto');
+
+/**
+ * 生成随机字符串
+ */
+function generateRandomString(length = 32) {
+  return crypto.randomBytes(length).toString('hex').slice(0, length);
+}
+
+/**
+ * 生成authKey
+ */
+function generateAuthKey() {
+  return generateRandomString(32);
+}
+
+/**
+ * 生成clientId
+ */
+function generateClientId() {
+  return `device_${generateRandomString(16)}`;
+}
+
+/**
+ * 生成密码
+ */
+function generatePassword() {
+  return generateRandomString(24);
+}
+
+/**
+ * 设置Web管理路由
+ */
+function setupWebRoutes(fastify) {
+  
+  // 健康检查
+  fastify.get('/health', async (request, reply) => {
+    return {
+      message: 1000,
+      detail: {
+        status: 'ok',
+        service: 'web-admin',
+        timestamp: new Date().toISOString()
+      }
+    };
+  });
+
+  /**
+   * 获取所有设备列表
+   * GET /admin/devices
+   */
+  fastify.get('/admin/devices', async (request, reply) => {
+    try {
+      const devices = getAllDevices();
+      
+      return {
+        message: 1000,
+        detail: {
+          devices: devices,
+          total: devices.length
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  /**
+   * 获取单个设备详情
+   * GET /admin/device/:uuid
+   */
+  fastify.get('/admin/device/:uuid', async (request, reply) => {
+    try {
+      const { uuid } = request.params;
+      const device = getDeviceByUuid(uuid);
+
+      if (!device) {
+        return reply.status(404).send({
+          message: 1003,
+          detail: '设备不存在'
+        });
+      }
+
+      const groups = getDeviceGroups(device.id);
+
+      return {
+        message: 1000,
+        detail: {
+          ...device,
+          groups: groups.map(g => g.name)
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  /**
+   * 创建设备（管理接口）
+   * POST /admin/device
+   */
+  fastify.post('/admin/device', async (request, reply) => {
+    try {
+      const { uuid, token } = request.body || {};
+
+      const deviceUuid = uuid || `device_${generateRandomString(12)}`;
+      const deviceToken = token || generateRandomString(24);
+
+      // 检查设备是否已存在
+      const existingDevice = getDeviceByUuid(deviceUuid);
+      if (existingDevice) {
+        return reply.status(400).send({
+          message: 1001,
+          detail: '设备UUID已存在'
+        });
+      }
+
+      // 生成authKey
+      const authKey = generateAuthKey();
+
+      // 创建设备记录
+      createDevice(deviceUuid, deviceToken, authKey);
+
+      // 创建默认用户组（以uuid为组名）
+      createGroup(deviceUuid);
+      const group = getGroupByName(deviceUuid);
+      const device = getDeviceByUuid(deviceUuid);
+      if (group && device) {
+        addDeviceToGroup(device.id, group.id);
+      }
+
+      return {
+        message: 1000,
+        detail: {
+          uuid: deviceUuid,
+          token: deviceToken,
+          authKey: authKey
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  /**
+   * 获取设备连接信息（用于测试）
+   * GET /admin/device/:uuid/connection
+   */
+  fastify.get('/admin/device/:uuid/connection', async (request, reply) => {
+    try {
+      const { uuid } = request.params;
+      const device = getDeviceByUuid(uuid);
+
+      if (!device) {
+        return reply.status(404).send({
+          message: 1003,
+          detail: '设备不存在'
+        });
+      }
+
+      // 生成新的连接凭证
+      const clientId = generateClientId();
+      const username = `user_${device.uuid.slice(0, 8)}`;
+      const password = generatePassword();
+      const iotToken = generateRandomString(32);
+
+      // 更新数据库
+      updateDeviceConnection(device.auth_key, clientId, username, password, iotToken);
+
+      return {
+        message: 1000,
+        detail: {
+          uuid: device.uuid,
+          clientId: clientId,
+          username: username,
+          password: password
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+}
+
+module.exports = { setupWebRoutes };

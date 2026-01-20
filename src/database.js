@@ -201,6 +201,16 @@ function isDeviceInGroup(deviceId, groupName) {
   return stmt.get(deviceId, groupName) !== undefined;
 }
 
+/**
+ * 获取所有设备
+ */
+function getAllDevices() {
+  const stmt = getDb().prepare(`
+    SELECT * FROM devices ORDER BY created_at DESC
+  `);
+  return stmt.all();
+}
+
 module.exports = {
   initDatabase,
   getDb,
@@ -214,5 +224,6 @@ module.exports = {
   addDeviceToGroup,
   getDeviceGroups,
   getGroupDevices,
-  isDeviceInGroup
+  isDeviceInGroup,
+  getAllDevices
 };
