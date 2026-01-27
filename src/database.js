@@ -4,6 +4,32 @@ const path = require('path');
 let db = null;
 
 /**
+ * 预编译语句缓存
+ * 避免每次查询都重新编译 SQL，显著提升性能
+ */
+const stmtCache = new Map();
+
+/**
+ * 获取预编译语句（懒加载 + 缓存）
+ * @param {string} key - 语句的唯一标识
+ * @param {string} sql - SQL 语句
+ * @returns {Database.Statement} 预编译语句
+ */
+function getStmt(key, sql) {
+  if (!stmtCache.has(key)) {
+    stmtCache.set(key, getDb().prepare(sql));
+  }
+  return stmtCache.get(key);
+}
+
+/**
+ * 清除语句缓存（数据库重新初始化时调用）
+ */
+function clearStmtCache() {
+  stmtCache.clear();
+}
+
+/**
  * 初始化数据库
  */
 function initDatabase() {
@@ -16,10 +42,18 @@ function initDatabase() {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
+  // 清除旧的语句缓存
+  clearStmtCache();
+
   db = new Database(dbPath);
   
   // 启用WAL模式提升性能
   db.pragma('journal_mode = WAL');
+  
+  // 额外性能优化配置
+  db.pragma('synchronous = NORMAL');   // 降低同步级别，提升写入速度
+  db.pragma('cache_size = 10000');     // 增大页面缓存（约40MB）
+  db.pragma('temp_store = MEMORY');    // 临时表存储在内存中
 
   // 创建设备表
   db.exec(`
@@ -86,7 +120,7 @@ function getDb() {
  * 创建设备
  */
 function createDevice(uuid, token, authKey) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('createDevice', `
     INSERT INTO devices (uuid, token, auth_key)
     VALUES (?, ?, ?)
   `);
@@ -97,7 +131,7 @@ function createDevice(uuid, token, authKey) {
  * 通过authKey获取设备
  */
 function getDeviceByAuthKey(authKey) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('getDeviceByAuthKey', `
     SELECT * FROM devices WHERE auth_key = ?
   `);
   return stmt.get(authKey);
@@ -107,7 +141,7 @@ function getDeviceByAuthKey(authKey) {
  * 通过uuid获取设备
  */
 function getDeviceByUuid(uuid) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('getDeviceByUuid', `
     SELECT * FROM devices WHERE uuid = ?
   `);
   return stmt.get(uuid);
@@ -117,7 +151,7 @@ function getDeviceByUuid(uuid) {
  * 通过clientId获取设备
  */
 function getDeviceByClientId(clientId) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('getDeviceByClientId', `
     SELECT * FROM devices WHERE client_id = ?
   `);
   return stmt.get(clientId);
@@ -127,7 +161,7 @@ function getDeviceByClientId(clientId) {
  * 更新设备连接信息
  */
 function updateDeviceConnection(authKey, clientId, username, password, iotToken) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('updateDeviceConnection', `
     UPDATE devices 
     SET client_id = ?, username = ?, password = ?, iot_token = ?, updated_at = CURRENT_TIMESTAMP
     WHERE auth_key = ?
@@ -139,7 +173,7 @@ function updateDeviceConnection(authKey, clientId, username, password, iotToken)
  * 创建组
  */
 function createGroup(name) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('createGroup', `
     INSERT OR IGNORE INTO groups (name) VALUES (?)
   `);
   return stmt.run(name);
@@ -149,7 +183,7 @@ function createGroup(name) {
  * 获取组
  */
 function getGroupByName(name) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('getGroupByName', `
     SELECT * FROM groups WHERE name = ?
   `);
   return stmt.get(name);
@@ -159,7 +193,7 @@ function getGroupByName(name) {
  * 将设备添加到组
  */
 function addDeviceToGroup(deviceId, groupId) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('addDeviceToGroup', `
     INSERT OR IGNORE INTO device_groups (device_id, group_id) VALUES (?, ?)
   `);
   return stmt.run(deviceId, groupId);
@@ -169,7 +203,7 @@ function addDeviceToGroup(deviceId, groupId) {
  * 获取设备所在的所有组
  */
 function getDeviceGroups(deviceId) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('getDeviceGroups', `
     SELECT g.* FROM groups g
     INNER JOIN device_groups dg ON g.id = dg.group_id
     WHERE dg.device_id = ?
@@ -181,7 +215,7 @@ function getDeviceGroups(deviceId) {
  * 获取组内所有设备
  */
 function getGroupDevices(groupId) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('getGroupDevices', `
     SELECT d.* FROM devices d
     INNER JOIN device_groups dg ON d.id = dg.device_id
     WHERE dg.group_id = ?
@@ -193,7 +227,7 @@ function getGroupDevices(groupId) {
  * 检查设备是否在指定组中
  */
 function isDeviceInGroup(deviceId, groupName) {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('isDeviceInGroup', `
     SELECT 1 FROM device_groups dg
     INNER JOIN groups g ON g.id = dg.group_id
     WHERE dg.device_id = ? AND g.name = ?
@@ -205,7 +239,7 @@ function isDeviceInGroup(deviceId, groupName) {
  * 获取所有设备
  */
 function getAllDevices() {
-  const stmt = getDb().prepare(`
+  const stmt = getStmt('getAllDevices', `
     SELECT * FROM devices ORDER BY created_at DESC
   `);
   return stmt.all();
