@@ -94,6 +94,19 @@ export function initDatabase(): BetterSqlite3Database {
     )
   `);
 
+  // 创建设备状态表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS device_status (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER UNIQUE NOT NULL,
+      status INTEGER DEFAULT 0,
+      mode TEXT DEFAULT 'mqtt',
+      last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (device_id) REFERENCES devices(id)
+    )
+  `);
+
   // 创建索引
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_devices_auth_key ON devices(auth_key);
@@ -101,6 +114,8 @@ export function initDatabase(): BetterSqlite3Database {
     CREATE INDEX IF NOT EXISTS idx_devices_client_id ON devices(client_id);
     CREATE INDEX IF NOT EXISTS idx_device_groups_device_id ON device_groups(device_id);
     CREATE INDEX IF NOT EXISTS idx_device_groups_group_id ON device_groups(group_id);
+    CREATE INDEX IF NOT EXISTS idx_device_status_device_id ON device_status(device_id);
+    CREATE INDEX IF NOT EXISTS idx_device_status_status ON device_status(status);
   `);
 
   console.log('数据库表结构初始化完成');
@@ -248,6 +263,116 @@ export function isDeviceInGroup(deviceId: number, groupName: string): boolean {
 export function getAllDevices(): Device[] {
   const stmt = getStmt('getAllDevices', `
     SELECT * FROM devices ORDER BY created_at DESC
+  `);
+  return stmt.all([]) as Device[];
+}
+
+/**
+ * 更新设备在线状态
+ * @param deviceId 设备ID
+ * @param isOnline 是否在线
+ * @param mode 连接模式 mqtt | http
+ */
+export function updateDeviceOnlineStatus(
+  deviceId: number,
+  isOnline: boolean,
+  mode: 'mqtt' | 'http' = 'mqtt'
+): RunResult {
+  const stmt = getStmt('updateDeviceOnlineStatus', `
+    INSERT INTO device_status (device_id, status, mode, last_active_at, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT(device_id) DO UPDATE SET
+      status = excluded.status,
+      mode = excluded.mode,
+      last_active_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+  return stmt.run(deviceId, isOnline ? 1 : 0, mode);
+}
+
+/**
+ * 更新设备最后活动时间
+ * @param deviceId 设备ID
+ */
+export function updateDeviceLastActive(deviceId: number): RunResult {
+  const stmt = getStmt('updateDeviceLastActive', `
+    UPDATE device_status
+    SET last_active_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+    WHERE device_id = ?
+  `);
+  return stmt.run(deviceId);
+}
+
+/**
+ * 批量更新MQTT设备状态（每分钟调用）
+ * @param clientIds 在线的clientId列表
+ */
+export function batchUpdateMqttDeviceStatus(clientIds: string[]): void {
+  if (clientIds.length === 0) return;
+  
+  const db = getDb();
+  const updateStmt = db.prepare(`
+    UPDATE device_status
+    SET status = 1, last_active_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+    WHERE device_id = (SELECT id FROM devices WHERE client_id = ?)
+  `);
+  
+  const transaction = db.transaction((ids: string[]) => {
+    for (const clientId of ids) {
+      updateStmt.run(clientId);
+    }
+  });
+  
+  transaction(clientIds);
+}
+
+/**
+ * 将HTTP设备标记为离线（超过10分钟无活动）
+ */
+export function markInactiveHttpDevicesOffline(): RunResult {
+  const stmt = getStmt('markInactiveHttpDevicesOffline', `
+    UPDATE device_status
+    SET status = 0, updated_at = CURRENT_TIMESTAMP
+    WHERE mode = 'http'
+      AND status = 1
+      AND datetime(last_active_at) < datetime('now', '-10 minutes')
+  `);
+  return stmt.run();
+}
+
+/**
+ * 将设备标记为离线
+ * @param deviceId 设备ID
+ */
+export function markDeviceOffline(deviceId: number): RunResult {
+  const stmt = getStmt('markDeviceOffline', `
+    UPDATE device_status
+    SET status = 0, updated_at = CURRENT_TIMESTAMP
+    WHERE device_id = ?
+  `);
+  return stmt.run(deviceId);
+}
+
+/**
+ * 获取设备在线状态
+ * @param deviceId 设备ID
+ */
+export function getDeviceStatus(deviceId: number): { status: number; mode: string; last_active_at: string } | undefined {
+  const stmt = getStmt('getDeviceStatus', `
+    SELECT status, mode, last_active_at FROM device_status WHERE device_id = ?
+  `);
+  return stmt.get(deviceId) as { status: number; mode: string; last_active_at: string } | undefined;
+}
+
+/**
+ * 获取所有在线设备
+ */
+export function getOnlineDevices(): Device[] {
+  const stmt = getStmt('getOnlineDevices', `
+    SELECT d.* FROM devices d
+    INNER JOIN device_status ds ON d.id = ds.device_id
+    WHERE ds.status = 1
+    ORDER BY ds.last_active_at DESC
   `);
   return stmt.all([]) as Device[];
 }

@@ -38,6 +38,9 @@ export class DeviceCache implements IDeviceCache {
   // 组成员反向索引 groupName -> Set<clientId>
   private groupMembersIndex: Map<string, Set<string>>;
 
+  // HTTP设备最后活动时间 clientId -> timestamp
+  private httpDeviceLastActive: Map<string, number>;
+
   // 清理定时器
   private cleanupTimer: NodeJS.Timeout;
 
@@ -65,6 +68,9 @@ export class DeviceCache implements IDeviceCache {
 
     // 组成员反向索引 groupName -> Set<clientId>
     this.groupMembersIndex = new Map();
+
+    // HTTP设备最后活动时间 clientId -> timestamp
+    this.httpDeviceLastActive = new Map();
 
     // 定时清理过期消息
     this.cleanupTimer = setInterval(() => this.cleanExpiredMessages(), config.cache.cleanupInterval);
@@ -301,6 +307,33 @@ export class DeviceCache implements IDeviceCache {
       cachedDevices: this.deviceByClientId.size,
       onlineClients: this.onlineClients.size
     };
+  }
+
+  /**
+   * 记录HTTP设备最后活动时间
+   */
+  setHttpDeviceLastActive(clientId: string): void {
+    this.httpDeviceLastActive.set(clientId, Date.now());
+  }
+
+  /**
+   * 获取HTTP设备最后活动时间
+   */
+  getHttpDeviceLastActive(clientId: string): number {
+    return this.httpDeviceLastActive.get(clientId) || 0;
+  }
+
+  /**
+   * 获取所有在线MQTT客户端的clientId列表
+   */
+  getOnlineMqttClientIds(): string[] {
+    const mqttClientIds: string[] = [];
+    for (const [clientId] of this.onlineClients) {
+      if (this.getDeviceMode(clientId) === 'mqtt') {
+        mqttClientIds.push(clientId);
+      }
+    }
+    return mqttClientIds;
   }
 
   /**

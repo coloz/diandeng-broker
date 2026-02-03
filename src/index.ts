@@ -1,7 +1,7 @@
 import Aedes from 'aedes';
 import { createServer } from 'net';
 import Fastify from 'fastify';
-import { initDatabase } from './database';
+import { initDatabase, batchUpdateMqttDeviceStatus, markInactiveHttpDevicesOffline } from './database';
 import { setupRoutes } from './routes';
 import { setupBroker } from './broker';
 import { deviceCache } from './cache';
@@ -46,9 +46,31 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // 定时更新MQTT设备在线状态（每分钟）
+  const mqttStatusTimer = setInterval(() => {
+    const onlineMqttClientIds = deviceCache.getOnlineMqttClientIds();
+    if (onlineMqttClientIds.length > 0) {
+      batchUpdateMqttDeviceStatus(onlineMqttClientIds);
+      console.log(`已更新 ${onlineMqttClientIds.length} 个MQTT设备的在线状态`);
+    }
+  }, 60 * 1000); // 每分钟
+
+  // 定时检查HTTP设备离线状态（每10分钟）
+  const httpStatusTimer = setInterval(() => {
+    const result = markInactiveHttpDevicesOffline();
+    if (result.changes > 0) {
+      console.log(`已将 ${result.changes} 个HTTP设备标记为离线`);
+    }
+  }, 10 * 60 * 1000); // 每10分钟
+
   // 优雅关闭
   process.on('SIGINT', () => {
     console.log('\n正在关闭服务...');
+    
+    // 清除定时器
+    clearInterval(mqttStatusTimer);
+    clearInterval(httpStatusTimer);
+    
     aedes.close(() => {
       console.log('MQTT Broker 已关闭');
       mqttServer.close(() => {

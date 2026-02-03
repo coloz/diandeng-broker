@@ -8,7 +8,8 @@ import {
   createDevice,
   createGroup,
   getGroupByName,
-  addDeviceToGroup
+  addDeviceToGroup,
+  getDeviceStatus
 } from '../src/database';
 import { Device, Group, ApiResponse, AdminCreateDeviceBody, DeviceParams } from '../src/types';
 
@@ -65,11 +66,22 @@ export function setupWebRoutes(fastify: FastifyInstance): void {
     try {
       const devices = getAllDevices();
       
+      // 为每个设备添加连接状态信息
+      const devicesWithStatus = devices.map(device => {
+        const status = getDeviceStatus(device.id);
+        return {
+          ...device,
+          status: status?.status === 1 ? 1 : 0,
+          mode: status?.mode || null,
+          last_active_at: status?.last_active_at || null
+        };
+      });
+      
       return {
         message: 1000,
         detail: {
-          devices: devices,
-          total: devices.length
+          devices: devicesWithStatus,
+          total: devicesWithStatus.length
         }
       };
     } catch (error) {
@@ -98,12 +110,16 @@ export function setupWebRoutes(fastify: FastifyInstance): void {
       }
 
       const groups = getDeviceGroups(device.id);
+      const deviceStatus = getDeviceStatus(device.id);
 
       return {
         message: 1000,
         detail: {
           ...device,
-          groups: groups.map(g => g.name)
+          groups: groups.map(g => g.name),
+          status: deviceStatus?.status === 1 ? 1 : 0,
+          mode: deviceStatus?.mode || null,
+          last_active_at: deviceStatus?.last_active_at || null
         }
       };
     } catch (error) {

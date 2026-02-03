@@ -1,5 +1,5 @@
 import Aedes, { Client as AedesClient, AuthenticateError, PublishPacket, Subscription } from 'aedes';
-import { getDeviceByClientId, getDeviceGroups, isDeviceInGroup } from './database';
+import { getDeviceByClientId, getDeviceGroups, isDeviceInGroup, updateDeviceOnlineStatus, markDeviceOffline } from './database';
 import config from './config';
 import { Device, ForwardMessage, IDeviceCache } from './types';
 import { logger } from './logger';
@@ -165,6 +165,12 @@ export function setupBroker(aedes: Aedes, deviceCache: IDeviceCache): void {
   aedes.on('client', (client: AedesClient) => {
     logger.connect(`客户端已连接: ${client.id}`);
     deviceCache.setClientOnline(client.id, client);
+    
+    // 更新数据库中的设备在线状态
+    const device = deviceCache.getDeviceByClientId(client.id);
+    if (device) {
+      updateDeviceOnlineStatus(device.id, true, 'mqtt');
+    }
   });
 
   /**
@@ -173,6 +179,12 @@ export function setupBroker(aedes: Aedes, deviceCache: IDeviceCache): void {
   aedes.on('clientDisconnect', (client: AedesClient) => {
     logger.disconnect(`客户端已断开: ${client.id}`);
     deviceCache.setClientOffline(client.id);
+    
+    // 更新数据库中的设备离线状态
+    const device = deviceCache.getDeviceByClientId(client.id);
+    if (device) {
+      markDeviceOffline(device.id);
+    }
   });
 
   /**

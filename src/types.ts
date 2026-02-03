@@ -38,6 +38,18 @@ export interface DeviceGroup {
 }
 
 /**
+ * 设备状态接口
+ */
+export interface DeviceStatus {
+  id: number;
+  device_id: number;
+  status: number;
+  mode: 'mqtt' | 'http';
+  last_active_at: string;
+  updated_at: string;
+}
+
+/**
  * 转发消息接口
  */
 export interface ForwardMessage {
@@ -198,6 +210,9 @@ export interface IDeviceCache {
   getGroupMembers(groupName: string): string[];
   isDeviceInGroup(clientId: string, groupName: string): boolean;
   getStats(): CacheStats;
+  setHttpDeviceLastActive(clientId: string): void;
+  getHttpDeviceLastActive(clientId: string): number;
+  getOnlineMqttClientIds(): string[];
 }
 
 // 重新导出第三方类型

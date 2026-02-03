@@ -8,7 +8,9 @@ import {
   createGroup,
   getGroupByName,
   addDeviceToGroup,
-  getDeviceGroups
+  getDeviceGroups,
+  updateDeviceOnlineStatus,
+  updateDeviceLastActive
 } from './database';
 import {
   IDeviceCache,
@@ -188,6 +190,10 @@ export function setupRoutes(fastify: FastifyInstance, deviceCache: IDeviceCache)
 
       // 根据模式返回不同的连接信息
       if (mode === 'http') {
+        // HTTP模式上线，更新数据库状态和活动时间
+        updateDeviceOnlineStatus(device.id, true, 'http');
+        deviceCache.setHttpDeviceLastActive(clientId);
+        
         return {
           message: 1000,
           detail: {
@@ -199,6 +205,7 @@ export function setupRoutes(fastify: FastifyInstance, deviceCache: IDeviceCache)
         };
       }
 
+      // MQTT模式上线，状态将在MQTT连接时更新
       return {
         message: 1000,
         detail: {
@@ -270,6 +277,12 @@ export function setupRoutes(fastify: FastifyInstance, deviceCache: IDeviceCache)
           message: 1001,
           detail: '设备未上线'
         });
+      }
+
+      // HTTP设备有动作，更新活动时间
+      if (deviceCache.isHttpMode(clientId)) {
+        deviceCache.setHttpDeviceLastActive(clientId);
+        updateDeviceLastActive(deviceInfo.id);
       }
 
       // 检查发布频率限制（限制机制3）
@@ -396,6 +409,10 @@ export function setupRoutes(fastify: FastifyInstance, deviceCache: IDeviceCache)
           detail: '该设备未以HTTP模式上线'
         });
       }
+
+      // HTTP设备有动作，更新活动时间
+      deviceCache.setHttpDeviceLastActive(clientId);
+      updateDeviceLastActive(deviceInfo.id);
 
       // 获取并清除暂存的消息
       const messages = deviceCache.getPendingMessages(clientId);
