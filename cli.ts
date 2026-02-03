@@ -12,6 +12,13 @@ import fs from 'fs';
 // 版本信息
 const VERSION = '1.0.0';
 
+// 检测是否通过 ts-node 运行
+const isTsNode = (process.argv[0] ?? '').includes('ts-node') || 
+                 (process as any)[Symbol.for('ts-node.register.instance')] !== undefined ||
+                 __filename.endsWith('.ts');
+const scriptExt = isTsNode ? '.ts' : '.js';
+const nodeRunner = isTsNode ? 'ts-node' : 'node';
+
 // 颜色输出
 const colors = {
   reset: '\x1b[0m',
@@ -29,7 +36,7 @@ function log(message: string, color: string = ''): void {
 
 function printBanner(): void {
   log('\n╔════════════════════════════════════════╗', colors.cyan);
-  log('║       点灯Broker Lite v' + VERSION.padEnd(17) + '║', colors.cyan);
+  log('║       点灯Broker Lite v' + VERSION.padEnd(16) + '║', colors.cyan);
   log('║   Lightweight MQTT Broker Service      ║', colors.cyan);
   log('╚════════════════════════════════════════╝\n', colors.cyan);
 }
@@ -48,10 +55,14 @@ function printHelp(): void {
   log('  version       显示版本信息\n');
   
   log('环境变量:', colors.bright);
-  log('  MQTT_PORT     MQTT 服务端口 (默认: 1883)');
-  log('  HTTP_PORT     HTTP API 端口 (默认: 3000)');
-  log('  WEB_PORT      Web 面板端口 (默认: 3001)');
-  log('  WS_PORT       WebSocket 端口 (默认: 8083)\n');
+  log('  MQTT_PORT          MQTT 服务端口 (默认: 1883)');
+  log('  HTTP_PORT          HTTP API 端口 (默认: 3000)');
+  log('  WEB_PORT           Web 面板端口 (默认: 3001)');
+  log('  WS_PORT            WebSocket 端口 (默认: 8083)');
+  log('  LOG_LEVEL          日志级别 (none/error/warn/info/debug)\n');
+  
+  log('选项:', colors.bright);
+  log('  --verbose, -V      启用详细日志输出\n');
   
   log('示例:', colors.bright);
   log('  node dist/cli.js              # 启动所有服务');
@@ -67,11 +78,17 @@ function printVersion(): void {
 /**
  * 启动子进程
  */
-function startProcess(name: string, scriptPath: string, color: string): ChildProcess {
-  const child = spawn('node', [scriptPath], {
+function startProcess(name: string, scriptPath: string, color: string, verbose: boolean = false): ChildProcess {
+  const env = { ...process.env };
+  if (verbose) {
+    env.LOG_LEVEL = 'debug';
+  }
+  
+  const child = spawn(nodeRunner, [scriptPath], {
     cwd: path.dirname(scriptPath),
-    env: process.env,
-    stdio: ['inherit', 'pipe', 'pipe']
+    env: env,
+    stdio: ['inherit', 'pipe', 'pipe'],
+    shell: isTsNode
   });
 
   child.stdout?.on('data', (data: Buffer) => {
@@ -108,19 +125,22 @@ function startProcess(name: string, scriptPath: string, color: string): ChildPro
 /**
  * 启动 MQTT Broker
  */
-function startBroker(): ChildProcess {
+function startBroker(verbose: boolean = false): ChildProcess {
   log('🚀 正在启动 MQTT Broker...', colors.green);
-  const scriptPath = path.join(__dirname, 'src', 'index.js');
-  return startProcess('Broker', scriptPath, colors.blue);
+  if (verbose) {
+    log('   详细日志已启用', colors.yellow);
+  }
+  const scriptPath = path.join(__dirname, 'src', `index${scriptExt}`);
+  return startProcess('Broker', scriptPath, colors.blue, verbose);
 }
 
 /**
  * 启动 Web 管理面板
  */
-function startWeb(): ChildProcess {
+function startWeb(verbose: boolean = false): ChildProcess {
   log('🌐 正在启动 Web 管理面板...', colors.green);
-  const scriptPath = path.join(__dirname, 'web', 'index.js');
-  return startProcess('Web', scriptPath, colors.cyan);
+  const scriptPath = path.join(__dirname, 'web', `index${scriptExt}`);
+  return startProcess('Web', scriptPath, colors.cyan, verbose);
 }
 
 /**
@@ -179,7 +199,7 @@ function startAngular(): ChildProcess {
 /**
  * 启动所有服务
  */
-function startAll(): ChildProcess[] {
+function startAll(verbose: boolean = false): ChildProcess[] {
   printBanner();
   const isDev = isDevEnvironment();
   
@@ -192,11 +212,11 @@ function startAll(): ChildProcess[] {
   const processes: ChildProcess[] = [];
   
   // 启动 Broker
-  processes.push(startBroker());
+  processes.push(startBroker(verbose));
   
   // 稍微延迟启动 Web，确保数据库已初始化
   setTimeout(() => {
-    processes.push(startWeb());
+    processes.push(startWeb(verbose));
     
     // 开发环境下启动 Angular 开发服务器
     if (isDev) {
@@ -230,22 +250,26 @@ function startAll(): ChildProcess[] {
 // 主入口
 function main(): void {
   const args = process.argv.slice(2);
-  const command = args[0] || 'all';
+  
+  // 解析选项
+  const verbose = args.includes('--verbose') || args.includes('-V');
+  const filteredArgs = args.filter(arg => arg !== '--verbose' && arg !== '-V');
+  const command = filteredArgs[0] || 'all';
 
   switch (command.toLowerCase()) {
     case 'all':
     case 'start':
-      startAll();
+      startAll(verbose);
       break;
       
     case 'broker':
       printBanner();
-      startBroker();
+      startBroker(verbose);
       break;
       
     case 'web':
       printBanner();
-      startWeb();
+      startWeb(verbose);
       break;
       
     case 'help':

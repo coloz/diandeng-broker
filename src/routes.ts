@@ -21,6 +21,7 @@ import {
   DeviceGroupsQuery,
   ApiResponse
 } from './types';
+import { logger } from './logger';
 
 /**
  * 生成随机字符串
@@ -302,7 +303,7 @@ export function setupRoutes(fastify: FastifyInstance, deviceCache: IDeviceCache)
           if (deviceCache.isHttpMode(toDevice)) {
             // HTTP模式：暂存消息
             deviceCache.addPendingMessage(toDevice, forwardMessage);
-            console.log(`[HTTP] 消息已暂存给HTTP设备: ${toDevice}`);
+            logger.http(`消息已暂存给HTTP设备: ${toDevice}`);
           }
           // 如果是MQTT模式，消息会通过broker.ts的逻辑转发
         }
@@ -325,9 +326,14 @@ export function setupRoutes(fastify: FastifyInstance, deviceCache: IDeviceCache)
           data: data
         };
 
-        // 这里需要获取组内所有HTTP模式的设备并暂存消息
-        // 实际生产中可以从数据库获取组内所有设备
-        console.log(`[HTTP] 组消息发送到: ${toGroup}`);
+        // 使用反向索引获取组内所有HTTP模式的设备并暂存消息
+        const groupMembers = deviceCache.getGroupMembers(toGroup);
+        for (const memberId of groupMembers) {
+          if (memberId !== clientId && deviceCache.isHttpMode(memberId)) {
+            deviceCache.addPendingMessage(memberId, forwardMessage);
+          }
+        }
+        logger.http(`组消息发送到: ${toGroup}`);
       }
 
       return {

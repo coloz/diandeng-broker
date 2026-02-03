@@ -35,6 +35,9 @@ export class DeviceCache implements IDeviceCache {
   // HTTP模式设备的消息暂存 clientId -> [{message, timestamp}]
   private pendingMessages: Map<string, PendingMessage[]>;
 
+  // 组成员反向索引 groupName -> Set<clientId>
+  private groupMembersIndex: Map<string, Set<string>>;
+
   // 清理定时器
   private cleanupTimer: NodeJS.Timeout;
 
@@ -59,6 +62,9 @@ export class DeviceCache implements IDeviceCache {
 
     // HTTP模式设备的消息暂存 clientId -> [{message, timestamp}]
     this.pendingMessages = new Map();
+
+    // 组成员反向索引 groupName -> Set<clientId>
+    this.groupMembersIndex = new Map();
 
     // 定时清理过期消息
     this.cleanupTimer = setInterval(() => this.cleanExpiredMessages(), config.cache.cleanupInterval);
@@ -96,6 +102,18 @@ export class DeviceCache implements IDeviceCache {
    * 删除设备缓存
    */
   removeDevice(clientId: string, authKey: string): void {
+    // 从组反向索引中移除
+    const groups = this.deviceGroupsMap.get(clientId) || [];
+    for (const groupName of groups) {
+      const members = this.groupMembersIndex.get(groupName);
+      if (members) {
+        members.delete(clientId);
+        if (members.size === 0) {
+          this.groupMembersIndex.delete(groupName);
+        }
+      }
+    }
+
     this.deviceByClientId.delete(clientId);
     this.deviceByAuthKey.delete(authKey);
     this.lastPublishTime.delete(clientId);
@@ -228,7 +246,28 @@ export class DeviceCache implements IDeviceCache {
    * 设置设备所属组
    */
   setDeviceGroups(clientId: string, groups: string[]): void {
+    // 先从旧的组中移除
+    const oldGroups = this.deviceGroupsMap.get(clientId) || [];
+    for (const groupName of oldGroups) {
+      const members = this.groupMembersIndex.get(groupName);
+      if (members) {
+        members.delete(clientId);
+        if (members.size === 0) {
+          this.groupMembersIndex.delete(groupName);
+        }
+      }
+    }
+
+    // 设置新的组
     this.deviceGroupsMap.set(clientId, groups);
+
+    // 更新反向索引
+    for (const groupName of groups) {
+      if (!this.groupMembersIndex.has(groupName)) {
+        this.groupMembersIndex.set(groupName, new Set());
+      }
+      this.groupMembersIndex.get(groupName)!.add(clientId);
+    }
   }
 
   /**
@@ -236,6 +275,14 @@ export class DeviceCache implements IDeviceCache {
    */
   getDeviceGroups(clientId: string): string[] {
     return this.deviceGroupsMap.get(clientId) || [];
+  }
+
+  /**
+   * 获取组内所有成员（使用反向索引，O(1) 复杂度）
+   */
+  getGroupMembers(groupName: string): string[] {
+    const members = this.groupMembersIndex.get(groupName);
+    return members ? Array.from(members) : [];
   }
 
   /**

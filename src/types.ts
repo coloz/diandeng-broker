@@ -195,6 +195,7 @@ export interface IDeviceCache {
   cleanExpiredMessages(): void;
   setDeviceGroups(clientId: string, groups: string[]): void;
   getDeviceGroups(clientId: string): string[];
+  getGroupMembers(groupName: string): string[];
   isDeviceInGroup(clientId: string, groupName: string): boolean;
   getStats(): CacheStats;
 }
