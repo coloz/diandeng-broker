@@ -7,7 +7,7 @@
     "diandeng-broker": "./dist/cli.js"
   },
   "scripts": {
-    "start": "node dist/cli.js",
+    "start": "ts-node cli.ts start",
     "broker": "node dist/cli.js broker",
     "web": "node dist/cli.js web",
     "dev": "ts-node src/index.ts",

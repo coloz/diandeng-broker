@@ -36,7 +36,7 @@ function log(message: string, color: string = ''): void {
 
 function printBanner(): void {
   log('\n╔════════════════════════════════════════╗', colors.cyan);
-  log('║       点灯Broker Lite v' + VERSION.padEnd(16) + '║', colors.cyan);
+  log('║         DianDeng Lite v' + VERSION.padEnd(16) + '║', colors.cyan);
   log('║   Lightweight MQTT Broker Service      ║', colors.cyan);
   log('╚════════════════════════════════════════╝\n', colors.cyan);
 }
