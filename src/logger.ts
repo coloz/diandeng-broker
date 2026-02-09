@@ -174,6 +174,15 @@ class Logger {
       console.log(`[SCHEDULER] ${message}`, ...args);
     }
   }
+
+  /**
+   * Bridge 桥接日志
+   */
+  bridge(message: string, ...args: unknown[]): void {
+    if (this.level >= LogLevel.DEBUG) {
+      console.log(`[BRIDGE] ${message}`, ...args);
+    }
+  }
 }
 
 // 导出单例

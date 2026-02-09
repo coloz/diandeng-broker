@@ -57,6 +57,48 @@ export interface ForwardMessage {
 }
 
 /**
+ * Bridge 远程 Broker 配置
+ */
+export interface BridgeRemoteConfig {
+  id: string;        // 远程 broker 的唯一标识
+  url: string;       // 远程 broker 的 MQTT 地址，如 mqtt://192.168.1.100:1883
+  token: string;     // 连接远程 broker 使用的 bridge token
+}
+
+/**
+ * Bridge 远程 Broker 数据库记录
+ */
+export interface BridgeRemote {
+  id: number;         // 数据库自增 ID
+  broker_id: string;  // 远程 broker 的唯一标识
+  url: string;        // 远程 broker 的 MQTT 地址
+  token: string;      // 连接远程 broker 的 bridge token
+  enabled: number;    // 是否启用 (0/1)
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Bridge 消息接口（跨 broker 设备消息）
+ */
+export interface BridgeMessage {
+  fromBroker: string;   // 来源 broker ID
+  fromDevice: string;   // 来源设备 clientId
+  toDevice: string;     // 目标设备 clientId（本地 clientId，不含 broker 前缀）
+  data: unknown;
+}
+
+/**
+ * Bridge 组消息接口（跨 broker 组消息）
+ */
+export interface BridgeGroupMessage {
+  fromBroker: string;   // 来源 broker ID
+  fromDevice: string;   // 来源设备 clientId
+  toGroup: string;      // 目标组名（本地组名，不含 broker 前缀）
+  data: unknown;
+}
+
+/**
  * 暂存消息接口
  */
 export interface PendingMessage {
@@ -201,6 +243,31 @@ export interface DeviceParams {
 }
 
 /**
+ * 用户端添加远程 Broker 请求体
+ */
+export interface AddBridgeRemoteBody {
+  brokerId: string;     // 远程 broker ID
+  url: string;          // mqtt://host:port
+  token: string;        // bridge token
+}
+
+/**
+ * 用户端修改远程 Broker 请求体
+ */
+export interface UpdateBridgeRemoteBody {
+  url?: string;
+  token?: string;
+  enabled?: boolean;
+}
+
+/**
+ * Broker 路由参数
+ */
+export interface BrokerParams {
+  brokerId: string;
+}
+
+/**
  * 配置接口
  */
 export interface Config {
@@ -222,6 +289,12 @@ export interface Config {
   };
   database: {
     filename: string;
+  };
+  bridge: {
+    enabled: boolean;           // 是否启用 bridge
+    brokerId: string;           // 本 broker 的唯一标识
+    token: string;              // 本 broker 接受 bridge 连接的 token
+    reconnectInterval: number;  // 重连间隔（毫秒）
   };
 }
 

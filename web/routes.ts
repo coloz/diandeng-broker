@@ -9,10 +9,26 @@ import {
   createGroup,
   getGroupByName,
   addDeviceToGroup,
-  getDeviceStatus
+  getDeviceStatus,
+  getAllBridgeRemotes,
+  getBridgeRemoteByBrokerId,
+  addBridgeRemote,
+  updateBridgeRemote,
+  deleteBridgeRemote
 } from '../src/database';
-import { Device, Group, ApiResponse, UserCreateDeviceBody, DeviceParams } from '../src/types';
+import {
+  Device,
+  Group,
+  ApiResponse,
+  UserCreateDeviceBody,
+  DeviceParams,
+  AddBridgeRemoteBody,
+  UpdateBridgeRemoteBody,
+  BrokerParams
+} from '../src/types';
 import { USER_TOKEN } from '../src/config';
+import config from '../src/config';
+import { bridge } from '../src/bridge';
 
 /**
  * 判断是否为本地请求
@@ -256,6 +272,206 @@ export function setupWebRoutes(fastify: FastifyInstance): void {
           clientId: clientId,
           username: username,
           password: password
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  // ========== Bridge Remote Broker 管理接口 ==========
+
+  /**
+   * 获取本机 Bridge 信息及所有远程 Broker
+   * GET /user/broker
+   */
+  fastify.get('/user/broker', async (request: FastifyRequest, reply: FastifyReply): Promise<ApiResponse | undefined> => {
+    if (!verifyUserToken(request, reply)) return;
+
+    try {
+      const remotes = getAllBridgeRemotes();
+      const connectedIds = bridge.getConnectedRemotes();
+
+      return {
+        message: 1000,
+        detail: {
+          brokerId: config.bridge.brokerId,
+          bridgeToken: config.bridge.token,
+          enabled: config.bridge.enabled,
+          remotes: remotes.map(r => ({
+            id: r.id,
+            brokerId: r.broker_id,
+            url: r.url,
+            token: r.token,
+            enabled: r.enabled === 1,
+            connected: connectedIds.includes(r.broker_id),
+            created_at: r.created_at,
+            updated_at: r.updated_at
+          })),
+          total: remotes.length
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  /**
+   * 添加远程 Broker
+   * POST /user/broker
+   */
+  fastify.post('/user/broker', async (request: FastifyRequest<{ Body: AddBridgeRemoteBody }>, reply: FastifyReply): Promise<ApiResponse | undefined> => {
+    if (!verifyUserToken(request, reply)) return;
+
+    try {
+      const { brokerId, url, token } = request.body || {};
+
+      if (!brokerId || !url || !token) {
+        return reply.status(400).send({
+          message: 1001,
+          detail: 'brokerId、url、token 为必填参数'
+        });
+      }
+
+      // 不能添加自己
+      if (brokerId === config.bridge.brokerId) {
+        return reply.status(400).send({
+          message: 1001,
+          detail: '不能添加本机 Broker 作为远程 Broker'
+        });
+      }
+
+      // 检查是否已存在
+      const existing = getBridgeRemoteByBrokerId(brokerId);
+      if (existing) {
+        return reply.status(400).send({
+          message: 1001,
+          detail: `远程 Broker ${brokerId} 已存在`
+        });
+      }
+
+      addBridgeRemote(brokerId, url, token);
+
+      // 如果 Bridge 已运行，立即连接新添加的远程 Broker
+      if (config.bridge.enabled) {
+        bridge.addRemote({ id: brokerId, url, token });
+      }
+
+      return {
+        message: 1000,
+        detail: {
+          brokerId,
+          url,
+          status: 'added'
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  /**
+   * 修改远程 Broker
+   * PUT /user/broker/:brokerId
+   */
+  fastify.put('/user/broker/:brokerId', async (request: FastifyRequest<{ Params: BrokerParams; Body: UpdateBridgeRemoteBody }>, reply: FastifyReply): Promise<ApiResponse | undefined> => {
+    if (!verifyUserToken(request, reply)) return;
+
+    try {
+      const { brokerId } = request.params;
+      const { url, token, enabled } = request.body || {};
+
+      const existing = getBridgeRemoteByBrokerId(brokerId);
+      if (!existing) {
+        return reply.status(404).send({
+          message: 1003,
+          detail: `远程 Broker ${brokerId} 不存在`
+        });
+      }
+
+      const updates: { url?: string; token?: string; enabled?: number } = {};
+      if (url !== undefined) updates.url = url;
+      if (token !== undefined) updates.token = token;
+      if (enabled !== undefined) updates.enabled = enabled ? 1 : 0;
+
+      updateBridgeRemote(brokerId, updates);
+
+      // 如果 Bridge 已运行，动态更新连接
+      if (config.bridge.enabled) {
+        if (enabled === false) {
+          // 禁用 → 断开连接
+          bridge.removeRemote(brokerId);
+        } else {
+          // 修改了 url/token 或启用 → 重连
+          const updatedRemote = getBridgeRemoteByBrokerId(brokerId);
+          if (updatedRemote && updatedRemote.enabled === 1) {
+            bridge.updateRemote({
+              id: updatedRemote.broker_id,
+              url: updatedRemote.url,
+              token: updatedRemote.token
+            });
+          }
+        }
+      }
+
+      return {
+        message: 1000,
+        detail: {
+          brokerId,
+          status: 'updated'
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  /**
+   * 删除远程 Broker
+   * DELETE /user/broker/:brokerId
+   */
+  fastify.delete('/user/broker/:brokerId', async (request: FastifyRequest<{ Params: BrokerParams }>, reply: FastifyReply): Promise<ApiResponse | undefined> => {
+    if (!verifyUserToken(request, reply)) return;
+
+    try {
+      const { brokerId } = request.params;
+
+      const existing = getBridgeRemoteByBrokerId(brokerId);
+      if (!existing) {
+        return reply.status(404).send({
+          message: 1003,
+          detail: `远程 Broker ${brokerId} 不存在`
+        });
+      }
+
+      deleteBridgeRemote(brokerId);
+
+      // 如果 Bridge 已运行，断开连接
+      if (config.bridge.enabled) {
+        bridge.removeRemote(brokerId);
+      }
+
+      return {
+        message: 1000,
+        detail: {
+          brokerId,
+          status: 'deleted'
         }
       };
     } catch (error) {

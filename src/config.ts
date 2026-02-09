@@ -28,6 +28,15 @@ function getEnvNumber(key: string, defaultValue: number): number {
   return isNaN(parsed) ? defaultValue : parsed;
 }
 
+/**
+ * 获取布尔类型环境变量
+ */
+function getEnvBoolean(key: string, defaultValue: boolean): boolean {
+  const value = process.env[key];
+  if (value === undefined) return defaultValue;
+  return value.toLowerCase() === 'true' || value === '1';
+}
+
 const config: Config = {
   // MQTT服务器配置
   mqtt: {
@@ -61,6 +70,18 @@ const config: Config = {
   database: {
     // 数据库文件名（相对于data目录）
     filename: getEnv('DB_FILENAME', 'broker.db')
+  },
+
+  // Bridge 桥接配置（跨 Broker 通信）
+  bridge: {
+    // 是否启用 bridge 功能（首次启动时自动设置为 true）
+    enabled: getEnvBoolean('BRIDGE_ENABLED', false),
+    // 本 Broker 的唯一标识（首次启动时自动生成并写入 .env）
+    brokerId: getEnv('BROKER_ID', ''),
+    // 本 Broker 接受 bridge 连接的 token（首次启动时自动生成并写入 .env）
+    token: getEnv('BRIDGE_TOKEN', ''),
+    // 断线重连间隔（毫秒）
+    reconnectInterval: getEnvNumber('BRIDGE_RECONNECT_INTERVAL', 5000)
   }
 };
 

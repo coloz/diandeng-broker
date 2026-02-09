@@ -9,6 +9,7 @@
 | [HTTP接口文档](docs/API-HTTP.md) | 设备端HTTP接口，用于设备注册、上线和消息通信 | `http://localhost:3000` |
 | [Web用户接口文档](docs/API-User.md) | 用户接口，用于设备管理和调试，支持网页/App访问 | `http://localhost:3001` |
 | [MQTT接口文档](docs/API-MQTT.md) | MQTT协议接口，用于设备实时消息通信 | `mqtt://localhost:1883` |
+| [Bridge桥接文档](docs/API-Bridge.md) | 跨Broker通信，实现多Broker之间设备互联 | - |
 
 ---
 

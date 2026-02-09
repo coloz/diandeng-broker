@@ -35,6 +35,11 @@ Authorization: your_user_token_here
 - [获取设备详情](#获取设备详情)
 - [创建设备](#创建设备)
 - [获取设备连接凭证](#获取设备连接凭证)
+- [Bridge 远程 Broker 管理](#bridge-远程-broker-管理)
+  - [获取 Bridge 信息](#获取-bridge-信息)
+  - [添加远程 Broker](#添加远程-broker)
+  - [修改远程 Broker](#修改远程-broker)
+  - [删除远程 Broker](#删除远程-broker)
 - [错误码](#错误码)
 
 ---
@@ -194,6 +199,151 @@ GET /user/device/:uuid/connection
 ```
 
 > **注意**：每次调用此接口都会重新生成连接凭证，之前的凭证将失效。
+
+---
+
+## Bridge 远程 Broker 管理
+
+管理跨 Broker 通信的远程 Broker 列表。所有变更即时生效（自动连接/断开远程 Broker）。
+
+> 首次启动程序时会自动生成 `BROKER_ID` 和 `BRIDGE_TOKEN` 并写入 `.env`。
+
+### 获取 Bridge 信息
+
+获取本机 Bridge 配置及所有远程 Broker 列表。
+
+**请求**
+```
+GET /user/broker
+Authorization: Bearer your_user_token
+```
+
+**响应**
+```json
+{
+  "message": 1000,
+  "detail": {
+    "brokerId": "broker-a3f8e29c1b4d6e70",
+    "bridgeToken": "4f8a...",
+    "enabled": true,
+    "remotes": [
+      {
+        "id": 1,
+        "brokerId": "broker-b",
+        "url": "mqtt://192.168.1.100:1883",
+        "token": "remote_bridge_token",
+        "enabled": true,
+        "connected": true,
+        "created_at": "2026-02-10T10:00:00.000Z",
+        "updated_at": "2026-02-10T10:00:00.000Z"
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+---
+
+### 添加远程 Broker
+
+添加一个新的远程 Broker 并立即建立连接。
+
+**请求**
+```
+POST /user/broker
+Content-Type: application/json
+Authorization: Bearer your_user_token
+```
+
+**请求体**
+```json
+{
+  "brokerId": "broker-b",
+  "url": "mqtt://192.168.1.100:1883",
+  "token": "对方的 BRIDGE_TOKEN"
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| brokerId | string | 是 | 远程 Broker 的 BROKER_ID |
+| url | string | 是 | 远程 Broker 的 MQTT 地址 |
+| token | string | 是 | 远程 Broker 的 BRIDGE_TOKEN |
+
+**响应**
+```json
+{
+  "message": 1000,
+  "detail": {
+    "brokerId": "broker-b",
+    "url": "mqtt://192.168.1.100:1883",
+    "status": "added"
+  }
+}
+```
+
+---
+
+### 修改远程 Broker
+
+修改远程 Broker 的连接信息或启用/禁用状态。变更即时生效。
+
+**请求**
+```
+PUT /user/broker/:brokerId
+Content-Type: application/json
+Authorization: Bearer your_user_token
+```
+
+**请求体**（所有字段可选）
+```json
+{
+  "url": "mqtt://new-host:1883",
+  "token": "new_token",
+  "enabled": false
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| url | string | 否 | 新的 MQTT 地址 |
+| token | string | 否 | 新的 BRIDGE_TOKEN |
+| enabled | boolean | 否 | 是否启用连接 |
+
+**响应**
+```json
+{
+  "message": 1000,
+  "detail": {
+    "brokerId": "broker-b",
+    "status": "updated"
+  }
+}
+```
+
+---
+
+### 删除远程 Broker
+
+删除远程 Broker 并立即断开连接。
+
+**请求**
+```
+DELETE /user/broker/:brokerId
+Authorization: Bearer your_user_token
+```
+
+**响应**
+```json
+{
+  "message": 1000,
+  "detail": {
+    "brokerId": "broker-b",
+    "status": "deleted"
+  }
+}
+```
 
 ---
 

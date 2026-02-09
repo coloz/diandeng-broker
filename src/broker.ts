@@ -4,10 +4,13 @@ import config from './config';
 import { Device, ForwardMessage, IDeviceCache } from './types';
 import { logger } from './logger';
 import { stringifyForwardMessage, stringifyGroupForwardMessage } from './serializer';
+import { bridge, isBridgeClient, parseRemoteAddress, BRIDGE_CLIENT_PREFIX } from './bridge';
 
 // 预编译的正则表达式（避免每次调用时重新创建）
 const DEVICE_TOPIC_REGEX = /^\/device\/([^/]+)\/(s|r)$/;
 const GROUP_TOPIC_REGEX = /^\/group\/([^/]+)\/(s|r)$/;
+const BRIDGE_DEVICE_TOPIC_REGEX = /^\/bridge\/device\/([^/]+)$/;
+const BRIDGE_GROUP_TOPIC_REGEX = /^\/bridge\/group\/([^/]+)$/;
 
 interface DeviceMessage {
   toDevice?: string;
@@ -38,6 +41,24 @@ export function setupBroker(aedes: Aedes, deviceCache: IDeviceCache): void {
     const passwordStr = password ? password.toString() : '';
 
     logger.auth(`客户端尝试认证: ${clientId}, 用户名: ${username}`);
+
+    // Bridge 客户端认证（特殊处理）
+    if (isBridgeClient(clientId)) {
+      if (!config.bridge.enabled || !config.bridge.token) {
+        logger.auth(`Bridge 认证失败: Bridge 未启用或未配置 token`);
+        const error = new Error('Bridge 未启用') as AuthenticateError;
+        error.returnCode = 4;
+        return callback(error, false);
+      }
+      if (username !== BRIDGE_CLIENT_PREFIX || passwordStr !== config.bridge.token) {
+        logger.auth(`Bridge 认证失败: 凭证错误 ${clientId}`);
+        const error = new Error('Bridge 凭证错误') as AuthenticateError;
+        error.returnCode = 4;
+        return callback(error, false);
+      }
+      logger.auth(`Bridge 认证成功: ${clientId}`);
+      return callback(null, true);
+    }
 
     // 从数据库获取设备信息
     const device = getDeviceByClientId(clientId);
@@ -87,6 +108,15 @@ export function setupBroker(aedes: Aedes, deviceCache: IDeviceCache): void {
     const payload = packet.payload.toString();
 
     logger.publish(`客户端 ${clientId} 尝试发布到: ${topic}`);
+
+    // Bridge 客户端发布授权（只允许发布 /bridge/ topic）
+    if (isBridgeClient(clientId)) {
+      if (topic.startsWith('/bridge/')) {
+        logger.publish(`Bridge 发布授权成功: ${clientId} -> ${topic}`);
+        return callback(null);
+      }
+      return callback(new Error('Bridge 客户端只能发布 /bridge/ topic'));
+    }
 
     // 检查消息长度限制（限制机制4）
     if (payload.length > config.message.maxLength) {
@@ -139,6 +169,15 @@ export function setupBroker(aedes: Aedes, deviceCache: IDeviceCache): void {
 
     logger.subscribe(`客户端 ${clientId} 尝试订阅: ${topic}`);
 
+    // Bridge 客户端订阅授权（只允许订阅 /bridge/ topic）
+    if (isBridgeClient(clientId)) {
+      if (topic.startsWith('/bridge/')) {
+        logger.subscribe(`Bridge 订阅授权成功: ${clientId} -> ${topic}`);
+        return callback(null, sub);
+      }
+      return callback(new Error('Bridge 客户端只能订阅 /bridge/ topic'), null);
+    }
+
     // 获取设备信息
     const device = deviceCache.getDeviceByClientId(clientId);
     if (!device) {
@@ -163,6 +202,12 @@ export function setupBroker(aedes: Aedes, deviceCache: IDeviceCache): void {
    * 客户端连接事件
    */
   aedes.on('client', (client: AedesClient) => {
+    // Bridge 客户端连接不需要更新设备状态
+    if (isBridgeClient(client.id)) {
+      logger.connect(`Bridge 客户端已连接: ${client.id}`);
+      return;
+    }
+
     logger.connect(`客户端已连接: ${client.id}`);
     deviceCache.setClientOnline(client.id, client);
     
@@ -177,6 +222,12 @@ export function setupBroker(aedes: Aedes, deviceCache: IDeviceCache): void {
    * 客户端断开连接事件
    */
   aedes.on('clientDisconnect', (client: AedesClient) => {
+    // Bridge 客户端断开不需要更新设备状态
+    if (isBridgeClient(client.id)) {
+      logger.disconnect(`Bridge 客户端已断开: ${client.id}`);
+      return;
+    }
+
     logger.disconnect(`客户端已断开: ${client.id}`);
     deviceCache.setClientOffline(client.id);
     
@@ -204,6 +255,21 @@ export function setupBroker(aedes: Aedes, deviceCache: IDeviceCache): void {
     const payload = packet.payload.toString();
 
     logger.message(`${client.id} 发布消息到 ${topic}: ${payload.substring(0, 100)}...`);
+
+    // 处理 Bridge 入站消息（远程 Broker 通过 bridge 客户端发布到本地）
+    if (isBridgeClient(client.id) && topic.startsWith('/bridge/')) {
+      const deviceMatch = topic.match(BRIDGE_DEVICE_TOPIC_REGEX);
+      if (deviceMatch) {
+        bridge.handleIncomingBridgeDeviceMessage(deviceMatch[1]!, payload);
+        return;
+      }
+      const groupMatch = topic.match(BRIDGE_GROUP_TOPIC_REGEX);
+      if (groupMatch) {
+        bridge.handleIncomingBridgeGroupMessage(groupMatch[1]!, payload);
+        return;
+      }
+      return;
+    }
 
     try {
       const message = JSON.parse(payload) as DeviceMessage;
@@ -307,7 +373,18 @@ function handleDeviceMessage(
     return;
   }
 
-  // 构造转发消息
+  // 检查是否是跨 Broker 消息（格式: brokerId:clientId）
+  const remoteAddr = parseRemoteAddress(toDevice);
+  if (remoteAddr) {
+    // 转发到远程 Broker
+    const sent = bridge.sendToRemoteDevice(remoteAddr.brokerId, client.id, remoteAddr.clientId, data);
+    if (!sent) {
+      logger.forward(`远程 Broker ${remoteAddr.brokerId} 不可用，消息丢弃`);
+    }
+    return;
+  }
+
+  // 本地设备消息转发（原有逻辑不变）
   const forwardMessage: ForwardMessage = {
     fromDevice: client.id,
     data: data
@@ -315,7 +392,6 @@ function handleDeviceMessage(
 
   // 检查目标设备是否为HTTP模式
   if (deviceCache.isHttpMode(toDevice)) {
-    // HTTP模式：暂存消息，等待设备通过HTTP接口获取
     deviceCache.addPendingMessage(toDevice, forwardMessage);
     logger.forward(`消息已暂存给HTTP设备: ${toDevice}`);
     return;
@@ -323,8 +399,6 @@ function handleDeviceMessage(
 
   // MQTT模式：发送到目标设备的接收topic
   const targetTopic = `/device/${toDevice}/r`;
-  
-  // 使用 fast-json-stringify 序列化
   const payload = stringifyForwardMessage(forwardMessage);
   
   aedes.publish({
@@ -360,20 +434,30 @@ function handleGroupMessage(
     return;
   }
 
-  // 检查发送者是否在目标组中
+  // 检查是否是跨 Broker 组消息（格式: brokerId:groupName）
+  const remoteAddr = parseRemoteAddress(toGroup);
+  if (remoteAddr) {
+    // 转发到远程 Broker 的指定组
+    const sent = bridge.sendToRemoteGroup(remoteAddr.brokerId, client.id, remoteAddr.clientId, data);
+    if (!sent) {
+      logger.group(`远程 Broker ${remoteAddr.brokerId} 不可用，组消息丢弃`);
+    }
+    return;
+  }
+
+  // 本地组消息处理（原有逻辑不变）
   if (!deviceCache.isDeviceInGroup(client.id, toGroup)) {
     logger.group(`设备 ${client.id} 不在组 ${toGroup} 中，拒绝转发`);
     return;
   }
 
-  // 构造转发消息
   const forwardMessage: ForwardMessage = {
     fromGroup: toGroup,
     fromDevice: client.id,
     data: data
   };
 
-  // 使用反向索引获取组内成员，为HTTP模式的设备暂存消息
+  // 为组内 HTTP 模式设备暂存消息
   const groupMembers = deviceCache.getGroupMembers(toGroup);
   for (const clientIdEntry of groupMembers) {
     if (clientIdEntry !== client.id && deviceCache.isHttpMode(clientIdEntry)) {
@@ -382,10 +466,8 @@ function handleGroupMessage(
     }
   }
 
-  // 发送到组的接收topic（MQTT设备会通过订阅收到）
+  // 发送到组的接收 topic
   const targetTopic = `/group/${toGroup}/r`;
-  
-  // 使用 fast-json-stringify 序列化
   const payload = stringifyGroupForwardMessage(forwardMessage);
   
   aedes.publish({
@@ -402,4 +484,9 @@ function handleGroupMessage(
       logger.group(`消息已转发到组 ${toGroup}`);
     }
   });
+
+  // 如果启用了 Bridge，同时广播组消息到所有远程 Broker
+  if (config.bridge.enabled) {
+    bridge.broadcastToRemoteGroup(client.id, toGroup, data);
+  }
 }

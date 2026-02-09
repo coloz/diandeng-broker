@@ -134,3 +134,33 @@ export const stringifyMessagesResponse = fastJson({
     }
   }
 });
+
+/**
+ * Bridge 设备消息序列化器（跨 broker 设备消息）
+ */
+export const stringifyBridgeMessage = fastJson({
+  title: 'BridgeMessage',
+  type: 'object',
+  properties: {
+    fromBroker: { type: 'string' },
+    fromDevice: { type: 'string' },
+    toDevice: { type: 'string' },
+    data: {}  // any type
+  },
+  required: ['fromBroker', 'fromDevice', 'toDevice', 'data']
+});
+
+/**
+ * Bridge 组消息序列化器（跨 broker 组消息）
+ */
+export const stringifyBridgeGroupMessage = fastJson({
+  title: 'BridgeGroupMessage',
+  type: 'object',
+  properties: {
+    fromBroker: { type: 'string' },
+    fromDevice: { type: 'string' },
+    toGroup: { type: 'string' },
+    data: {}  // any type
+  },
+  required: ['fromBroker', 'fromDevice', 'toGroup', 'data']
+});

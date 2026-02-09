@@ -1,7 +1,7 @@
 import Database, { Statement, Database as BetterSqlite3Database, RunResult } from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { Device, Group } from './types';
+import { Device, Group, BridgeRemote } from './types';
 
 let db: BetterSqlite3Database | null = null;
 
@@ -102,6 +102,19 @@ export function initDatabase(): BetterSqlite3Database {
       last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (device_id) REFERENCES devices(id)
+    )
+  `);
+
+  // 创建 Bridge 远程 Broker 表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bridge_remotes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      broker_id TEXT UNIQUE NOT NULL,
+      url TEXT NOT NULL,
+      token TEXT NOT NULL,
+      enabled INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -372,4 +385,87 @@ export function getOnlineDevices(): Device[] {
     ORDER BY ds.last_active_at DESC
   `);
   return stmt.all([]) as Device[];
+}
+
+// ========== Bridge Remote CRUD ==========
+
+/**
+ * 获取所有已启用的远程 Broker
+ */
+export function getEnabledBridgeRemotes(): BridgeRemote[] {
+  const stmt = getStmt('getEnabledBridgeRemotes', `
+    SELECT * FROM bridge_remotes WHERE enabled = 1 ORDER BY created_at ASC
+  `);
+  return stmt.all([]) as BridgeRemote[];
+}
+
+/**
+ * 获取所有远程 Broker（含禁用）
+ */
+export function getAllBridgeRemotes(): BridgeRemote[] {
+  const stmt = getStmt('getAllBridgeRemotes', `
+    SELECT * FROM bridge_remotes ORDER BY created_at ASC
+  `);
+  return stmt.all([]) as BridgeRemote[];
+}
+
+/**
+ * 通过 brokerId 获取远程 Broker
+ */
+export function getBridgeRemoteByBrokerId(brokerId: string): BridgeRemote | undefined {
+  const stmt = getStmt('getBridgeRemoteByBrokerId', `
+    SELECT * FROM bridge_remotes WHERE broker_id = ?
+  `);
+  return stmt.get(brokerId) as BridgeRemote | undefined;
+}
+
+/**
+ * 添加远程 Broker
+ */
+export function addBridgeRemote(brokerId: string, url: string, token: string): RunResult {
+  const stmt = getStmt('addBridgeRemote', `
+    INSERT INTO bridge_remotes (broker_id, url, token) VALUES (?, ?, ?)
+  `);
+  return stmt.run(brokerId, url, token);
+}
+
+/**
+ * 更新远程 Broker
+ */
+export function updateBridgeRemote(brokerId: string, updates: { url?: string; token?: string; enabled?: number }): RunResult {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+
+  if (updates.url !== undefined) {
+    fields.push('url = ?');
+    values.push(updates.url);
+  }
+  if (updates.token !== undefined) {
+    fields.push('token = ?');
+    values.push(updates.token);
+  }
+  if (updates.enabled !== undefined) {
+    fields.push('enabled = ?');
+    values.push(updates.enabled);
+  }
+
+  if (fields.length === 0) {
+    return { changes: 0 } as RunResult;
+  }
+
+  fields.push('updated_at = CURRENT_TIMESTAMP');
+  values.push(brokerId);
+
+  const sql = `UPDATE bridge_remotes SET ${fields.join(', ')} WHERE broker_id = ?`;
+  return getDb().prepare(sql).run(...values);
+}
+
+/**
+ * 删除远程 Broker
+ */
+export function deleteBridgeRemote(brokerId: string): RunResult {
+  const stmt = getStmt('deleteBridgeRemote', `
+    DELETE FROM bridge_remotes WHERE broker_id = ?
+  `);
+  return stmt.run(brokerId);
 }

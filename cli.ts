@@ -8,6 +8,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 
 // 版本信息
 const VERSION = '1.0.0';
@@ -247,6 +248,55 @@ function startAll(verbose: boolean = false): ChildProcess[] {
   return processes;
 }
 
+/**
+ * 确保 Bridge 配置已生成
+ * 首次启动时自动生成 BROKER_ID 和 BRIDGE_TOKEN 并写入 .env
+ */
+function ensureBridgeConfig(): void {
+  const envPath = path.resolve(process.cwd(), '.env');
+  let envContent = '';
+  
+  if (fs.existsSync(envPath)) {
+    envContent = fs.readFileSync(envPath, 'utf-8');
+  }
+
+  let modified = false;
+  const lines = envContent.split('\n');
+
+  // 检查是否已有 BROKER_ID
+  const hasBrokerId = lines.some(line => line.trim().startsWith('BROKER_ID=') && line.split('=')[1]?.trim());
+  if (!hasBrokerId) {
+    const brokerId = `broker-${crypto.randomBytes(8).toString('hex')}`;
+    lines.push(`BROKER_ID=${brokerId}`);
+    log(`  🔑 已生成 BROKER_ID: ${brokerId}`, colors.green);
+    modified = true;
+  }
+
+  // 检查是否已有 BRIDGE_TOKEN
+  const hasBridgeToken = lines.some(line => line.trim().startsWith('BRIDGE_TOKEN=') && line.split('=')[1]?.trim());
+  if (!hasBridgeToken) {
+    const bridgeToken = crypto.randomBytes(32).toString('hex');
+    lines.push(`BRIDGE_TOKEN=${bridgeToken}`);
+    log(`  🔑 已生成 BRIDGE_TOKEN`, colors.green);
+    modified = true;
+  }
+
+  // 检查是否已有 BRIDGE_ENABLED
+  const hasBridgeEnabled = lines.some(line => line.trim().startsWith('BRIDGE_ENABLED='));
+  if (!hasBridgeEnabled) {
+    lines.push(`BRIDGE_ENABLED=true`);
+    log(`  ✅ 已启用 BRIDGE_ENABLED=true`, colors.green);
+    modified = true;
+  }
+
+  if (modified) {
+    // 过滤空行尾部，保持整洁
+    const finalContent = lines.filter((line, i) => i < lines.length - 1 || line.trim() !== '').join('\n') + '\n';
+    fs.writeFileSync(envPath, finalContent, 'utf-8');
+    log(`  📝 Bridge 配置已写入 .env`, colors.green);
+  }
+}
+
 // 主入口
 function main(): void {
   const args = process.argv.slice(2);
@@ -259,11 +309,13 @@ function main(): void {
   switch (command.toLowerCase()) {
     case 'all':
     case 'start':
+      ensureBridgeConfig();
       startAll(verbose);
       break;
       
     case 'broker':
       printBanner();
+      ensureBridgeConfig();
       startBroker(verbose);
       break;
       

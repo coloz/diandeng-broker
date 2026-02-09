@@ -6,6 +6,7 @@ import { setupRoutes } from './routes';
 import { setupBroker } from './broker';
 import { deviceCache } from './cache';
 import { scheduler } from './scheduler';
+import { bridge } from './bridge';
 import config from './config';
 
 async function main(): Promise<void> {
@@ -24,6 +25,13 @@ async function main(): Promise<void> {
   scheduler.init(aedes, deviceCache);
   scheduler.start();
   console.log('定时任务调度器已启动');
+
+  // 初始化并启动 Bridge（跨 Broker 通信）
+  bridge.init(aedes, deviceCache);
+  bridge.start();
+  if (config.bridge.enabled) {
+    console.log(`Bridge 已启动，brokerId: ${config.bridge.brokerId}`);
+  }
 
   // 创建MQTT服务器
   const mqttServer = createServer(aedes.handle);
@@ -69,6 +77,9 @@ async function main(): Promise<void> {
     
     // 停止调度器
     scheduler.stop();
+    
+    // 停止 Bridge
+    bridge.stop();
     
     aedes.close(() => {
       mqttServer.close(() => {
