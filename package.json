@@ -1,5 +1,5 @@
 {
-  "name": "diandeng-broker",
+  "name": "diandeng-service",
   "version": "1.0.0",
   "description": "点灯Broker Lite - A lightweight MQTT broker service",
   "main": "dist/cli.js",
