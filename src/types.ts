@@ -137,6 +137,17 @@ export interface BridgeShareDataMessage {
 }
 
 /**
+ * 设备配置接口
+ */
+export interface DeviceConfig {
+  id: number;
+  device_id: number;
+  config: string;          // JSON 字符串
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * 时序数据接口
  */
 export interface TimeseriesData {
@@ -332,6 +343,13 @@ export interface AddSharedDeviceBody {
 export interface SharedDeviceParams {
   brokerId: string;
   uuid: string;
+}
+
+/**
+ * 设备配置请求体
+ */
+export interface DeviceConfigBody {
+  config: unknown;         // JSON 配置数据
 }
 
 /**

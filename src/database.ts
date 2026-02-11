@@ -2,7 +2,7 @@ import Database, { Statement, Database as BetterSqlite3Database, RunResult } fro
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { Device, Group, BridgeRemote } from './types';
+import { Device, Group, BridgeRemote, DeviceConfig } from './types';
 import config from './config';
 
 let db: BetterSqlite3Database | null = null;
@@ -137,6 +137,19 @@ export function initDatabase(): BetterSqlite3Database {
     )
   `);
 
+  // 创建设备配置表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS device_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL,
+      config TEXT NOT NULL DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (device_id) REFERENCES devices(id),
+      UNIQUE(device_id)
+    )
+  `);
+
   // 创建索引
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_devices_auth_key ON devices(auth_key);
@@ -148,6 +161,7 @@ export function initDatabase(): BetterSqlite3Database {
     CREATE INDEX IF NOT EXISTS idx_device_status_status ON device_status(status);
     CREATE INDEX IF NOT EXISTS idx_bridge_shared_devices_broker ON bridge_shared_devices(broker_id);
     CREATE INDEX IF NOT EXISTS idx_bridge_shared_devices_device ON bridge_shared_devices(device_id);
+    CREATE INDEX IF NOT EXISTS idx_device_config_device_id ON device_config(device_id);
   `);
 
   console.log('数据库表结构初始化完成');
@@ -592,6 +606,42 @@ export function checkBridgeDeviceAccess(targetClientId: string, fromBrokerId: st
   `);
   const result = permStmt.get(fromBrokerId, targetClientId) as { permissions: string } | undefined;
   return result ? (result.permissions as 'read' | 'readwrite') : 'none';
+}
+
+// ========== 设备配置 CRUD ==========
+
+/**
+ * 获取设备配置
+ */
+export function getDeviceConfig(deviceId: number): DeviceConfig | undefined {
+  const stmt = getStmt('getDeviceConfig', `
+    SELECT * FROM device_config WHERE device_id = ?
+  `);
+  return stmt.get(deviceId) as DeviceConfig | undefined;
+}
+
+/**
+ * 设置设备配置（不存在则创建，存在则更新）
+ */
+export function upsertDeviceConfig(deviceId: number, config: string): RunResult {
+  const stmt = getStmt('upsertDeviceConfig', `
+    INSERT INTO device_config (device_id, config)
+    VALUES (?, ?)
+    ON CONFLICT(device_id) DO UPDATE SET
+      config = excluded.config,
+      updated_at = CURRENT_TIMESTAMP
+  `);
+  return stmt.run(deviceId, config);
+}
+
+/**
+ * 删除设备配置
+ */
+export function deleteDeviceConfig(deviceId: number): RunResult {
+  const stmt = getStmt('deleteDeviceConfig', `
+    DELETE FROM device_config WHERE device_id = ?
+  `);
+  return stmt.run(deviceId);
 }
 
 // ========== 时序数据（按天分表） ==========

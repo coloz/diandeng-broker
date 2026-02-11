@@ -35,6 +35,11 @@ Authorization: your_user_token_here
 - [获取设备详情](#获取设备详情)
 - [创建设备](#创建设备)
 - [获取设备连接凭证](#获取设备连接凭证)
+- [设备配置管理](#设备配置管理)
+  - [获取设备配置](#获取设备配置)
+  - [设置设备配置](#设置设备配置)
+  - [局部更新设备配置](#局部更新设备配置)
+  - [删除设备配置](#删除设备配置)
 - [查询时序数据](#查询时序数据)
 - [Bridge 远程 Broker 管理](#bridge-远程-broker-管理)
   - [获取 Bridge 信息](#获取-bridge-信息)
@@ -200,6 +205,161 @@ GET /user/device/:uuid/connection
 ```
 
 > **注意**：每次调用此接口都会重新生成连接凭证，之前的凭证将失效。
+
+---
+
+## 设备配置管理
+
+每个设备可以存储一份 JSON 格式的配置数据，用于保存设备的自定义配置信息。
+
+### 获取设备配置
+
+获取指定设备的配置信息。
+
+**请求**
+```
+GET /user/device/:uuid/config
+Authorization: Bearer your_user_token
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uuid | string | 是 | 设备唯一标识（路径参数） |
+
+**响应**
+```json
+{
+  "message": 1000,
+  "detail": {
+    "uuid": "9140dxx9843bxxd6bc439exxxxxxxxxx",
+    "config": {
+      "name": "客厅灯",
+      "icon": "light",
+      "threshold": 25.5
+    },
+    "updated_at": "2026-02-11T10:00:00.000Z"
+  }
+}
+```
+
+> **说明**：如果设备尚未配置，`config` 返回空对象 `{}`，`updated_at` 返回 `null`。
+
+---
+
+### 设置设备配置
+
+设置（整体覆盖）指定设备的配置信息。如果配置已存在则替换，不存在则创建。
+
+**请求**
+```
+PUT /user/device/:uuid/config
+Content-Type: application/json
+Authorization: Bearer your_user_token
+```
+
+**请求体**
+```json
+{
+  "config": {
+    "name": "客厅灯",
+    "icon": "light",
+    "threshold": 25.5
+  }
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uuid | string | 是 | 设备唯一标识（路径参数） |
+| config | object | 是 | JSON 配置对象 |
+
+**响应**
+```json
+{
+  "message": 1000,
+  "detail": {
+    "uuid": "9140dxx9843bxxd6bc439exxxxxxxxxx",
+    "config": {
+      "name": "客厅灯",
+      "icon": "light",
+      "threshold": 25.5
+    },
+    "status": "updated"
+  }
+}
+```
+
+---
+
+### 局部更新设备配置
+
+局部更新设备配置，仅合并传入的字段，不影响已有的其他字段。
+
+**请求**
+```
+PATCH /user/device/:uuid/config
+Content-Type: application/json
+Authorization: Bearer your_user_token
+```
+
+**请求体**
+```json
+{
+  "config": {
+    "threshold": 30.0
+  }
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uuid | string | 是 | 设备唯一标识（路径参数） |
+| config | object | 是 | 要合并的 JSON 配置字段 |
+
+**响应**
+```json
+{
+  "message": 1000,
+  "detail": {
+    "uuid": "9140dxx9843bxxd6bc439exxxxxxxxxx",
+    "config": {
+      "name": "客厅灯",
+      "icon": "light",
+      "threshold": 30.0
+    },
+    "status": "updated"
+  }
+}
+```
+
+> **说明**：上例中仅更新了 `threshold` 字段，`name` 和 `icon` 保持不变。
+
+---
+
+### 删除设备配置
+
+删除指定设备的配置信息。
+
+**请求**
+```
+DELETE /user/device/:uuid/config
+Authorization: Bearer your_user_token
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| uuid | string | 是 | 设备唯一标识（路径参数） |
+
+**响应**
+```json
+{
+  "message": 1000,
+  "detail": {
+    "uuid": "9140dxx9843bxxd6bc439exxxxxxxxxx",
+    "status": "deleted"
+  }
+}
+```
 
 ---
 

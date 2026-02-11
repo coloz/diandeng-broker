@@ -18,7 +18,10 @@ import {
   removeBridgeSharedDevice,
   getSharedDevicesForBroker,
   deleteAllBridgeSharedDevices,
-  queryTimeseriesData
+  queryTimeseriesData,
+  getDeviceConfig,
+  upsertDeviceConfig,
+  deleteDeviceConfig
 } from '../src/database';
 import {
   Device,
@@ -32,7 +35,8 @@ import {
   AddSharedDeviceBody,
   SharedDeviceParams,
   TimeseriesQueryParams,
-  TimeseriesQuerystring
+  TimeseriesQuerystring,
+  DeviceConfigBody
 } from '../src/types';
 import { USER_TOKEN } from '../src/config';
 import config from '../src/config';
@@ -681,6 +685,195 @@ export function setupWebRoutes(fastify: FastifyInstance): void {
             lastDataAt: d.lastDataAt || null
           })),
           total: remoteDevices.length
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  // ========== 设备配置管理接口 ==========
+
+  /**
+   * 获取设备配置
+   * GET /user/device/:uuid/config
+   */
+  fastify.get('/user/device/:uuid/config', async (request: FastifyRequest<{ Params: DeviceParams }>, reply: FastifyReply): Promise<ApiResponse | undefined> => {
+    if (!verifyUserToken(request, reply)) return;
+
+    try {
+      const { uuid } = request.params;
+      const device = getDeviceByUuid(uuid);
+
+      if (!device) {
+        return reply.status(404).send({
+          message: 1003,
+          detail: '设备不存在'
+        });
+      }
+
+      const deviceConfig = getDeviceConfig(device.id);
+
+      return {
+        message: 1000,
+        detail: {
+          uuid: device.uuid,
+          config: deviceConfig ? JSON.parse(deviceConfig.config) : {},
+          updated_at: deviceConfig?.updated_at || null
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  /**
+   * 添加/修改设备配置（整体覆盖）
+   * PUT /user/device/:uuid/config
+   * Body: { config: { ... } }
+   */
+  fastify.put('/user/device/:uuid/config', async (request: FastifyRequest<{ Params: DeviceParams; Body: DeviceConfigBody }>, reply: FastifyReply): Promise<ApiResponse | undefined> => {
+    if (!verifyUserToken(request, reply)) return;
+
+    try {
+      const { uuid } = request.params;
+      const { config: configData } = request.body || {};
+
+      if (configData === undefined || configData === null) {
+        return reply.status(400).send({
+          message: 1001,
+          detail: 'config 为必填参数'
+        });
+      }
+
+      // 验证 config 是合法的 JSON 对象
+      if (typeof configData !== 'object' || Array.isArray(configData)) {
+        return reply.status(400).send({
+          message: 1001,
+          detail: 'config 必须为 JSON 对象'
+        });
+      }
+
+      const device = getDeviceByUuid(uuid);
+      if (!device) {
+        return reply.status(404).send({
+          message: 1003,
+          detail: '设备不存在'
+        });
+      }
+
+      const configStr = JSON.stringify(configData);
+      upsertDeviceConfig(device.id, configStr);
+
+      return {
+        message: 1000,
+        detail: {
+          uuid: device.uuid,
+          config: configData,
+          status: 'updated'
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  /**
+   * 局部更新设备配置（合并字段）
+   * PATCH /user/device/:uuid/config
+   * Body: { config: { key1: value1, ... } }
+   */
+  fastify.patch('/user/device/:uuid/config', async (request: FastifyRequest<{ Params: DeviceParams; Body: DeviceConfigBody }>, reply: FastifyReply): Promise<ApiResponse | undefined> => {
+    if (!verifyUserToken(request, reply)) return;
+
+    try {
+      const { uuid } = request.params;
+      const { config: configData } = request.body || {};
+
+      if (configData === undefined || configData === null) {
+        return reply.status(400).send({
+          message: 1001,
+          detail: 'config 为必填参数'
+        });
+      }
+
+      if (typeof configData !== 'object' || Array.isArray(configData)) {
+        return reply.status(400).send({
+          message: 1001,
+          detail: 'config 必须为 JSON 对象'
+        });
+      }
+
+      const device = getDeviceByUuid(uuid);
+      if (!device) {
+        return reply.status(404).send({
+          message: 1003,
+          detail: '设备不存在'
+        });
+      }
+
+      // 读取现有配置并合并
+      const existing = getDeviceConfig(device.id);
+      const existingConfig = existing ? JSON.parse(existing.config) : {};
+      const mergedConfig = { ...existingConfig, ...(configData as Record<string, unknown>) };
+
+      const configStr = JSON.stringify(mergedConfig);
+      upsertDeviceConfig(device.id, configStr);
+
+      return {
+        message: 1000,
+        detail: {
+          uuid: device.uuid,
+          config: mergedConfig,
+          status: 'updated'
+        }
+      };
+    } catch (error) {
+      fastify.log.error(error);
+      return reply.status(500).send({
+        message: 1002,
+        detail: '服务器内部错误'
+      });
+    }
+  });
+
+  /**
+   * 删除设备配置
+   * DELETE /user/device/:uuid/config
+   */
+  fastify.delete('/user/device/:uuid/config', async (request: FastifyRequest<{ Params: DeviceParams }>, reply: FastifyReply): Promise<ApiResponse | undefined> => {
+    if (!verifyUserToken(request, reply)) return;
+
+    try {
+      const { uuid } = request.params;
+      const device = getDeviceByUuid(uuid);
+
+      if (!device) {
+        return reply.status(404).send({
+          message: 1003,
+          detail: '设备不存在'
+        });
+      }
+
+      deleteDeviceConfig(device.id);
+
+      return {
+        message: 1000,
+        detail: {
+          uuid: device.uuid,
+          status: 'deleted'
         }
       };
     } catch (error) {
