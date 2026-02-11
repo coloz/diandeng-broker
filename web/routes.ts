@@ -713,14 +713,14 @@ export function setupWebRoutes(fastify: FastifyInstance): void {
 
   /**
    * 查询设备时序数据
-   * GET /user/device/:uuid/timeseries?dataKey=xxx&startTime=xxx&endTime=xxx&limit=100
+   * GET /user/device/:uuid/timeseries?dataKey=xxx&startTime=xxx&endTime=xxx&page=1&pageSize=100
    */
   fastify.get('/user/device/:uuid/timeseries', async (request: FastifyRequest<{ Params: TimeseriesQueryParams; Querystring: TimeseriesQuerystring }>, reply: FastifyReply): Promise<ApiResponse | undefined> => {
     if (!verifyUserToken(request, reply)) return;
 
     try {
       const { uuid } = request.params;
-      const { dataKey, startTime, endTime, limit } = request.query;
+      const { dataKey, startTime, endTime, page, pageSize } = request.query;
 
       // 验证设备存在
       const device = getDeviceByUuid(uuid);
@@ -733,7 +733,8 @@ export function setupWebRoutes(fastify: FastifyInstance): void {
 
       const parsedStartTime = startTime ? parseInt(startTime, 10) : undefined;
       const parsedEndTime = endTime ? parseInt(endTime, 10) : undefined;
-      const parsedLimit = limit ? parseInt(limit, 10) : 100;
+      const parsedPage = page ? parseInt(page, 10) : 1;
+      const parsedPageSize = pageSize ? parseInt(pageSize, 10) : 1000;
 
       if (parsedStartTime !== undefined && isNaN(parsedStartTime)) {
         return reply.status(400).send({ message: 1001, detail: 'startTime 必须为有效时间戳' });
@@ -741,19 +742,22 @@ export function setupWebRoutes(fastify: FastifyInstance): void {
       if (parsedEndTime !== undefined && isNaN(parsedEndTime)) {
         return reply.status(400).send({ message: 1001, detail: 'endTime 必须为有效时间戳' });
       }
-      if (isNaN(parsedLimit) || parsedLimit <= 0) {
-        return reply.status(400).send({ message: 1001, detail: 'limit 必须为正整数' });
+      if (isNaN(parsedPage) || parsedPage < 1) {
+        return reply.status(400).send({ message: 1001, detail: 'page 必须为正整数' });
+      }
+      if (isNaN(parsedPageSize) || parsedPageSize < 1) {
+        return reply.status(400).send({ message: 1001, detail: 'pageSize 必须为正整数' });
       }
 
-      const data = queryTimeseriesData(uuid, dataKey, parsedStartTime, parsedEndTime, Math.min(parsedLimit, 1000));
+      const safePageSize = Math.min(parsedPageSize, 1000);
+      const result = queryTimeseriesData(uuid, dataKey, parsedStartTime, parsedEndTime, parsedPage, safePageSize);
 
       return {
         message: 1000,
         detail: {
           deviceUuid: uuid,
           dataKey: dataKey || null,
-          total: data.length,
-          data
+          ...result
         }
       };
     } catch (error) {

@@ -759,8 +759,9 @@ export function queryTimeseriesData(
   dataKey?: string,
   startTime?: number,
   endTime?: number,
-  limit: number = 100
-): Array<{ device_uuid: string; data_key: string; value: number; timestamp: number; created_at: string }> {
+  page: number = 1,
+  pageSize: number = 1000
+): { data: Array<{ device_uuid: string; data_key: string; value: number; timestamp: number; created_at: string }>; total: number; page: number; pageSize: number; totalPages: number } {
   // 确定要查询的分表
   let targetTables: string[];
 
@@ -779,7 +780,7 @@ export function queryTimeseriesData(
 
   // 过滤出实际存在的表
   const existingTables = targetTables.filter(t => timeseriesTableExists(t));
-  if (existingTables.length === 0) return [];
+  if (existingTables.length === 0) return { data: [], total: 0, page, pageSize, totalPages: 0 };
 
   // 构建 WHERE 条件
   const conditions: string[] = ['device_uuid = ?'];
@@ -799,26 +800,35 @@ export function queryTimeseriesData(
   }
 
   const whereClause = conditions.join(' AND ');
+  const offset = (page - 1) * pageSize;
+  const database = getDb();
 
   if (existingTables.length === 1) {
-    // 单表查询
-    const sql = `SELECT device_uuid, data_key, value, timestamp, created_at FROM ${existingTables[0]} WHERE ${whereClause} ORDER BY timestamp DESC LIMIT ?`;
-    const params = [...baseParams, limit];
-    return getDb().prepare(sql).all(...params) as Array<{ device_uuid: string; data_key: string; value: number; timestamp: number; created_at: string }>;
+    const table = existingTables[0];
+    // 查总数
+    const countSql = `SELECT COUNT(*) as count FROM ${table} WHERE ${whereClause}`;
+    const { count: total } = database.prepare(countSql).get(...baseParams) as { count: number };
+    // 查分页数据
+    const dataSql = `SELECT device_uuid, data_key, value, timestamp, created_at FROM ${table} WHERE ${whereClause} ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
+    const data = database.prepare(dataSql).all(...baseParams, pageSize, offset) as Array<{ device_uuid: string; data_key: string; value: number; timestamp: number; created_at: string }>;
+    return { data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
   }
 
-  // 多表 UNION ALL 查询
-  const selects = existingTables.map(t =>
+  // 多表 UNION ALL
+  const countSelects = existingTables.map(t => `SELECT COUNT(*) as count FROM ${t} WHERE ${whereClause}`);
+  const countSql = `SELECT SUM(count) as count FROM (${countSelects.join(' UNION ALL ')})`;
+  const countParams: unknown[] = [];
+  for (let i = 0; i < existingTables.length; i++) {
+    countParams.push(...baseParams);
+  }
+  const { count: total } = database.prepare(countSql).get(...countParams) as { count: number };
+
+  const dataSelects = existingTables.map(t =>
     `SELECT device_uuid, data_key, value, timestamp, created_at FROM ${t} WHERE ${whereClause}`
   );
-  const sql = `SELECT * FROM (${selects.join(' UNION ALL ')}) ORDER BY timestamp DESC LIMIT ?`;
+  const dataSql = `SELECT * FROM (${dataSelects.join(' UNION ALL ')}) ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
+  const dataParams: unknown[] = [...countParams, pageSize, offset];
+  const data = database.prepare(dataSql).all(...dataParams) as Array<{ device_uuid: string; data_key: string; value: number; timestamp: number; created_at: string }>;
 
-  // 每个 SELECT 都需要一套参数
-  const params: unknown[] = [];
-  for (let i = 0; i < existingTables.length; i++) {
-    params.push(...baseParams);
-  }
-  params.push(limit);
-
-  return getDb().prepare(sql).all(...params) as Array<{ device_uuid: string; data_key: string; value: number; timestamp: number; created_at: string }>;
+  return { data, total: total || 0, page, pageSize, totalPages: Math.ceil((total || 0) / pageSize) };
 }

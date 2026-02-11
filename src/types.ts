@@ -345,7 +345,8 @@ export interface TimeseriesQuerystring {
   dataKey?: string;
   startTime?: string;
   endTime?: string;
-  limit?: string;
+  page?: string;
+  pageSize?: string;
 }
 
 /**

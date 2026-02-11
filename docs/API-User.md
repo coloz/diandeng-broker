@@ -211,7 +211,7 @@ GET /user/device/:uuid/connection
 
 **请求**
 ```
-GET /user/device/:uuid/timeseries?dataKey=temperature&startTime=1707600000000&endTime=1707700000000&limit=100
+GET /user/device/:uuid/timeseries?dataKey=temperature&startTime=1707600000000&endTime=1707700000000&page=1&pageSize=100
 Authorization: Bearer your_user_token
 ```
 
@@ -221,7 +221,8 @@ Authorization: Bearer your_user_token
 | dataKey | string | 否 | 数据键名，不传则返回所有键的数据 |
 | startTime | number | 否 | 起始时间戳（毫秒） |
 | endTime | number | 否 | 结束时间戳（毫秒） |
-| limit | number | 否 | 返回条数限制，默认100，最大1000 |
+| page | number | 否 | 页码，默认 1 |
+| pageSize | number | 否 | 每页条数，默认 1000，最大 1000 |
 
 **响应**
 ```json
@@ -230,7 +231,10 @@ Authorization: Bearer your_user_token
   "detail": {
     "deviceUuid": "9140dxx9843bxxd6bc439exxxxxxxxxx",
     "dataKey": "temperature",
-    "total": 3,
+    "total": 150,
+    "page": 1,
+    "pageSize": 100,
+    "totalPages": 2,
     "data": [
       {
         "device_uuid": "9140dxx9843bxxd6bc439exxxxxxxxxx",
@@ -245,13 +249,6 @@ Authorization: Bearer your_user_token
         "value": 25.8,
         "timestamp": 1707680000000,
         "created_at": "2026-02-11T09:30:00.000Z"
-      },
-      {
-        "device_uuid": "9140dxx9843bxxd6bc439exxxxxxxxxx",
-        "data_key": "temperature",
-        "value": 25.1,
-        "timestamp": 1707670000000,
-        "created_at": "2026-02-11T09:00:00.000Z"
       }
     ]
   }
