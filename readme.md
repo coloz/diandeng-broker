@@ -1,6 +1,6 @@
-# 点灯Broker Lite
+# Diandeng Service
 
-diandeng-broker是一个nodejs编写的mqtt broker服务。
+Diandeng-Service是一个nodejs编写的mqtt broker服务。
 aedes为基础组件，Fastify提供必要的HTTP服务，使用Map缓存，使用SQLite做持久化；
 设备端可以是手机app、web页面、esp32、arduino等，可通过mqtt连接到本broker上；
 同时提供HTTP接口，让设备可以HTTP接入，用HTTP接口实现类似发布和订阅的效果；
